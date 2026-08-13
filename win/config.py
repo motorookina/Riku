@@ -29,6 +29,13 @@ class Config:
     # 理性仁API
     LIXINGER_TOKEN=os.getenv("LIXINGER_TOKEN")
 
+    # docker容器
+    _DEFAULT_IMAGE=os.getenv("_DEFAULT_IMAGE")
+    _DEFAULT_WORKING_DIR=os.getenv("_DEFAULT_WORKING_DIR")
+    _DEFAULT_EXECUTE_TIMEOUT=os.getenv("_DEFAULT_EXECUTE_TIMEOUT")
+    _DEFAULT_MAX_OUTPUT_BYTES=os.getenv("_DEFAULT_MAX_OUTPUT_BYTES")
+    _DEFAULT_CONTAINER_NAME=os.getenv("_DEFAULT_CONTAINER_NAME")
+
 
 # 实例化，供其他地方导入
 config = Config()

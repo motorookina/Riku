@@ -1,5 +1,6 @@
 import asyncio
 import json
+import docker
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware, ToolCallRequest
@@ -9,12 +10,22 @@ from langgraph.config import get_config
 from langgraph.types import Command
 
 from config import config
+from core.sandbox import DockerSandbox
+from deepagents.middleware.filesystem import FilesystemMiddleware
+
 
 
 _agent = None
 MODEL=config.MODEL
 LLM_API_KEY=config.LLM_API_KEY
 LLM_BASE_URL=config.LLM_BASE_URL
+volumes={
+    "D:/Agents/db-ops-v3/win/core/workspace":{
+        "bind":"/workspace",
+        "mode":"rw"
+    }
+}
+docker_sandbox=DockerSandbox(volumes=volumes)
 
 
 def get_agent():
@@ -25,7 +36,7 @@ def get_agent():
         _agent = create_agent(
             model=model,
             tools=[],
-            middleware=[],
+            middleware=[FilesystemMiddleware(backend=docker_sandbox)],
             system_prompt=(
                 "你是可以使用各种工具帮助用户完成各种任务的助手。\n"
                 "\n"
@@ -60,5 +71,5 @@ def event_generator(user_input: str):
 
 if __name__ == "__main__":
     # 测试生成器
-    for sse_event in event_generator("今天天气怎么样？"):
+    for sse_event in event_generator("列出你所在的目录下的所有文件？"):
         print(sse_event)  # 会看到 SSE 格式的原始输出
