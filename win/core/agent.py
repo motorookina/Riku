@@ -1,6 +1,7 @@
 import asyncio
 import json
 import uuid
+from pathlib import Path
 import docker
 
 from langchain.agents import create_agent
@@ -21,15 +22,24 @@ from tools.skills import load_skill
 _agent = None
 # 短期记忆：内存版 checkpointer。同一 thread_id 内累计上下文，进程退出即清空。
 _memory = MemorySaver()
+
 MODEL=config.MODEL
 LLM_API_KEY=config.LLM_API_KEY
 LLM_BASE_URL=config.LLM_BASE_URL
+cpu_limit=config.CPU_LIMIT
+memory_limit=config.MEMORY_LIMIT
+
+# 挂载路径从 __file__ 推导，Windows/Linux 双平台通吃，避免硬编码绝对路径
+_BASE_DIR = Path(__file__).resolve().parent.parent          # = win/ 根目录
+_WORKSPACE_DIR = _BASE_DIR / "core" / "workspace"
+_SKILLS_DIR = _BASE_DIR / "tools" / "skills"
+
 volumes={
-    "D:/Agents/db-ops-v3/win/core/workspace":{
+    _WORKSPACE_DIR.as_posix():{
         "bind":"/workspace",
         "mode":"rw"
     },
-    "D:/Agents/db-ops-v3/win/tools/skills":{
+    _SKILLS_DIR.as_posix():{
         "bind":"/workspace/skills",
         "mode":"ro"
     }# 挂载skills目录到容器指定目录下，防止agent找不到对应skill
@@ -43,9 +53,6 @@ env_vars={
     "DB_NAME": config.DB_NAME,
     "TUSHARE_TOKEN":config.TUSHARE_TOKEN
 }
-
-cpu_limit=4
-memory_limit="4g"
 
 docker_sandbox = DockerSandbox(volumes=volumes,env_vars=env_vars,cpu_limit=cpu_limit,memory_limit=memory_limit)
 

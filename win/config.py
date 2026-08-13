@@ -36,6 +36,9 @@ class Config:
     _DEFAULT_MAX_OUTPUT_BYTES=os.getenv("_DEFAULT_MAX_OUTPUT_BYTES")
     _DEFAULT_CONTAINER_NAME=os.getenv("_DEFAULT_CONTAINER_NAME")
 
+    # 容器资源限制
+    CPU_LIMIT=os.getenv("CPU_LIMIT")
+    MEMORY_LIMIT=os.getenv("MEMORY_LIMIT")
 
 # 实例化，供其他地方导入
 config = Config()
