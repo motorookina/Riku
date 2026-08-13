@@ -1,0 +1,46 @@
+import asyncio
+import json
+
+from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware, ToolCallRequest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_deepseek import ChatDeepSeek
+from langgraph.config import get_config
+from langgraph.types import Command
+
+from config import config
+
+
+_agent = None
+MODEL=config.MODEL
+LLM_API_KEY=config.LLM_API_KEY
+LLM_BASE_URL=config.LLM_BASE_URL
+
+
+def get_agent():
+    """懒加载单例 agent，避免每次请求重建模型。"""
+    global _agent
+    if _agent is None:
+        model = ChatDeepSeek(model=MODEL, api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+        _agent = create_agent(
+            model=model,
+            tools=[],
+            middleware=[],
+            system_prompt=(
+                "你是可以使用各种工具帮助用户完成各种任务的助手。\n"
+                "\n"
+                "【安全铁律】\n"
+                "1. 绝对禁止在任何文本中暴露敏感信息，包括但不限于：数据库连接串"
+                "（主机/端口/库名/账号/密码）、Tushare token、API Key、JWT 密钥、"
+                "以及 .env 等配置文件的内容。思考过程、工具参数、回复文本均适用。\n"
+                "2. 所有敏感凭据已封装在工具内部，调用工具时不要传入、展示或推测它们；"
+                "不要尝试读取 .env 或环境变量来获取密钥，也不要让用户看到这些信息。\n"
+                "3. 涉及金融数据的下载与存储时，优先使用 finance_db 数据库。"
+            ),
+        )
+    return _agent
+
+
+if __name__ == "__main__":
+    get_agent()
+    print(_agent.invoke({"messages": [{"role": "user", "content": "旧金山的天气怎么样"}]}))
