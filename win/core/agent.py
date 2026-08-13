@@ -40,7 +40,25 @@ def get_agent():
         )
     return _agent
 
+# 流式输出生成器
+def event_generator(user_input: str):
+    agent=get_agent()
+    for stream_mode, chunk in agent.stream(
+        {"messages": [{"role": "user", "content": user_input}]},
+        stream_mode=["messages", "updates"]
+    ):
+        if stream_mode == "messages":
+            token, meta = chunk
+            # 直接发送 content_blocks 列表，让前端解析
+            event = {
+                "type": "message_chunk",
+                "blocks": token.content_blocks,  # 列表，如 [{"type":"text","text":"你好"}, ...]
+                "node": meta.get("langgraph_node")  # 可选，标识来自哪个节点
+            }
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
 
 if __name__ == "__main__":
-    get_agent()
-    print(_agent.invoke({"messages": [{"role": "user", "content": "旧金山的天气怎么样"}]}))
+    # 测试生成器
+    for sse_event in event_generator("今天天气怎么样？"):
+        print(sse_event)  # 会看到 SSE 格式的原始输出
