@@ -1,6 +1,6 @@
 # db-ops-v3 Linux 服务器部署文档
 
-> 适用：把本项目（`win/` 目录下的 agent 工程）部署到 Linux 服务器。
+> 适用：把本项目的 agent 工程部署到 Linux 服务器。
 > 文档版本：2026-08-13。若代码有变更，请同步更新本文档。
 
 ---
@@ -8,20 +8,18 @@
 ## 一、项目结构与架构
 
 ```
-db-ops-v3/
-├── linux/          # 预留，当前为空
-├── win/            # 主要工程（包根目录，所有命令在此目录下执行）
-│   ├── .env        # 配置 + 密钥（已被 .gitignore 忽略，勿提交）
-│   ├── config.py   # 读取 .env 的配置类
-│   ├── requirements.txt  # 跨平台依赖清单
-│   ├── core/
-│   │   ├── agent.py      # 入口：agent 构建 / 流式 / 交互式 chat
-│   │   ├── sandbox.py    # Docker 沙箱
-│   │   └── workspace/    # 容器 /workspace 的挂载目录（产出文件落这里）
-│   ├── middlewares/      # 技能中间件
-│   └── tools/
-│       ├── skills.py     # load_skill 工具（host 侧读取技能目录）
-│       └── skills/       # 技能资产，挂载进容器 /workspace/skills（只读）
+db-ops-v3/          # 项目根目录 = 工程根目录（所有命令在此目录下执行）
+├── .env            # 配置 + 密钥（已被 .gitignore 忽略，勿提交）
+├── config.py       # 读取 .env 的配置类
+├── requirements.txt  # 跨平台依赖清单
+├── core/
+│   ├── agent.py      # 入口：agent 构建 / 流式 / 交互式 chat
+│   ├── sandbox.py    # Docker 沙箱
+│   └── workspace/    # 容器 /workspace 的挂载目录（产出文件落这里）
+├── middlewares/      # 技能中间件
+├── tools/
+│   ├── skills.py     # load_skill 工具（host 侧读取技能目录）
+│   └── skills/       # 技能资产，挂载进容器 /workspace/skills（只读）
 └── DEPLOY.md        # 本文件
 ```
 
@@ -37,8 +35,8 @@ db-ops-v3/
         │ docker.from_env()（Linux 自动用 /var/run/docker.sock）
         ▼
 ┌─ 容器层（uv python3.13 slim 沙箱）────────────────────┐
-│  /workspace          ← win/core/workspace (rw)      │
-│  /workspace/skills   ← win/tools/skills (ro)        │
+│  /workspace          ← core/workspace (rw)            │
+│  /workspace/skills   ← tools/skills (ro)              │
 │  bash/read/write 工具在此执行；模型按需 pip install    │
 │  · 连 Postgres（经注入的 DB_* 环境变量）               │
 │  · 连 Tushare（经 TUSHARE_TOKEN）                    │
@@ -79,8 +77,8 @@ env_vars = {
 ```bash
 mkdir -p /opt/app && cd /opt/app
 git clone <你的仓库地址> db-ops-v3
-# 工程保持在 win/ 目录下（包结构以 win/ 为根，改名会破坏相对导入）
-cd /opt/app/db-ops-v3/win
+# 项目根目录即工程根目录（包结构以项目根为根，改名/移动会破坏相对导入）
+cd /opt/app/db-ops-v3
 ```
 
 ### Step 2 · Python 环境 + 依赖
@@ -104,12 +102,12 @@ python -c "import core.agent; print('import OK')"
 ### Step 3 · 配置 `.env`
 
 ```bash
-cd /opt/app/db-ops-v3/win
+cd /opt/app/db-ops-v3
 vim .env
 chmod 600 .env    # 密钥文件只允许属主读写
 ```
 
-`.env` 需要包含以下键（值来自本地 `win/.env`，按服务器环境调整）：
+`.env` 需要包含以下键（值来自本地 `.env`，按服务器环境调整）：
 
 | 键 | 说明 | 部署时注意 |
 |---|---|---|
@@ -124,7 +122,7 @@ chmod 600 .env    # 密钥文件只允许属主读写
 | `CPU_LIMIT` | 4 | 沿用 |
 | `MEMORY_LIMIT` | "4g" | 沿用 |
 
-> `config.py` 用 `load_dotenv()`（无参），**只在当前工作目录找 `.env`**。所以一切运行命令都要在 `win/` 目录下执行。
+> `config.py` 用 `load_dotenv()`（无参），**只在当前工作目录找 `.env`**。所以一切运行命令都要在项目根目录下执行。
 
 ### Step 4 · Docker 准备
 
@@ -145,7 +143,7 @@ docker info   # 验证
 ### Step 5 · 运行与验证
 
 ```bash
-cd /opt/app/db-ops-v3/win && source .venv/bin/activate
+cd /opt/app/db-ops-v3 && source .venv/bin/activate
 
 # 方式 A：交互式 CLI（人工验证）
 python -m core.agent
@@ -159,8 +157,8 @@ python -m core.agent
 1. 首次运行会**创建沙箱容器**；`docker ps` 确认挂载两项正确：
    ```bash
    docker inspect <容器名> --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Mode}}){{println}}{{end}}'
-   # 期望：/opt/app/db-ops-v3/win/core/workspace -> /workspace (rw)
-   #       /opt/app/db-ops-v3/win/tools/skills  -> /workspace/skills (ro)
+   # 期望：/opt/app/db-ops-v3/core/workspace -> /workspace (rw)
+   #       /opt/app/db-ops-v3/tools/skills  -> /workspace/skills (ro)
    ```
 2. 容器内环境变量已注入：
    ```bash
@@ -174,7 +172,7 @@ python -m core.agent
 
 ```bash
 tmux new -s agent
-cd /opt/app/db-ops-v3/win && source .venv/bin/activate && python -m core.agent
+cd /opt/app/db-ops-v3 && source .venv/bin/activate && python -m core.agent
 # Ctrl+B D 脱离；tmux attach -t agent 回来
 ```
 

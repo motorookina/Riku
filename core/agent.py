@@ -30,7 +30,7 @@ cpu_limit=config.CPU_LIMIT
 memory_limit=config.MEMORY_LIMIT
 
 # 挂载路径从 __file__ 推导，Windows/Linux 双平台通吃，避免硬编码绝对路径
-_BASE_DIR = Path(__file__).resolve().parent.parent          # = win/ 根目录
+_BASE_DIR = Path(__file__).resolve().parent.parent          # = 项目根目录
 _WORKSPACE_DIR = _BASE_DIR / "core" / "workspace"
 _SKILLS_DIR = _BASE_DIR / "tools" / "skills"
 
