@@ -12,7 +12,12 @@ langchain-core==1.5.4
 langchain-deepseek==1.1.0
 langgraph==1.2.11
 langgraph-checkpoint==4.2.0      # MemorySaver (short-term memory)
+langgraph-checkpoint-postgres==3.1.0  # PostgresSaver (durable session checkpoint)
+psycopg[binary]                  # Psycopg 3 driver (PostgresSaver 依赖)
 deepagents==0.7.5
+
+# HTTP client（openai SDK 的传递依赖；流式场景直接捕获 httpx 传输层异常，显式声明）
+httpx
 
 # Docker sandbox
 docker==7.2.0

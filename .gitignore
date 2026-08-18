@@ -21,6 +21,15 @@ htmlcov/
 dist/
 build/
 
-# 部署文档
-DEPLOY.md
+# 本地运行状态（会话指针，配合断点续跑）
+.state/
 
+# 各种文档
+DEPLOY.md
+PROCESS.md
+financial_data_service_核心说明.md
+
+# 修改前目录
+/win
+/docs
+/core/workspace

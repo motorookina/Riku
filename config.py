@@ -18,6 +18,13 @@ class Config:
     DB_PORT=os.getenv("DB_PORT")
     DB_NAME=os.getenv("DB_NAME")
 
+    # 会话持久化 checkpoint（PostgresSaver；CHECKPOINT_DB_NAME 留空则回退内存版 MemorySaver）
+    CHECKPOINT_DB_HOST=os.getenv("CHECKPOINT_DB_HOST") or os.getenv("DB_HOST")
+    CHECKPOINT_DB_PORT=os.getenv("CHECKPOINT_DB_PORT") or os.getenv("DB_PORT")
+    CHECKPOINT_DB_USER=os.getenv("CHECKPOINT_DB_USER") or os.getenv("DB_USER")
+    CHECKPOINT_DB_PASSWD=os.getenv("CHECKPOINT_DB_PASSWD") or os.getenv("DB_PASSWD")
+    CHECKPOINT_DB_NAME=os.getenv("CHECKPOINT_DB_NAME")
+
     # 认证
     JWT_SECRET_KEY=os.getenv("JWT_SECRET_KEY")
     ACCESS_TOKEN_EXPIRE_MINUTES=os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
@@ -37,7 +44,8 @@ class Config:
     _DEFAULT_CONTAINER_NAME=os.getenv("_DEFAULT_CONTAINER_NAME")
 
     # 容器资源限制
-    CPU_LIMIT=os.getenv("CPU_LIMIT")
+    # .env 读进来是字符串，CPU_LIMIT 参与算术运算（nano_cpus = 核心数*1e9）必须转数值
+    CPU_LIMIT=float(os.getenv("CPU_LIMIT")) if os.getenv("CPU_LIMIT") else None
     MEMORY_LIMIT=os.getenv("MEMORY_LIMIT")
 
 # 实例化，供其他地方导入

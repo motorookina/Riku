@@ -58,7 +58,12 @@ class DockerSandbox(BaseSandbox):
         execute_timeout: ``execute()`` 的默认超时时间（秒）。
         max_output_bytes: 截断输出前的最大输出字节数。
         docker_client_kwargs: 传递给 ``docker.from_env()`` 的额外关键字参数，仅传递docker客户端连接的参数
-        env_vars: 传入容器内的环境变量
+        env_vars: 传入容器内的环境变量。容器创建后新增/修改的字段会通过
+            ``exec_run`` 动态注入到后续每条命令中，无需重建容器。
+        recreate_on_env_drift: 环境变量漂移时是否重建容器（默认 False）。
+            既有容器的环境变量与当前 ``env_vars`` 不一致时：
+            True → 删除旧容器并按新 ``env_vars`` 重建（会丢失容器内未挂载的改动）；
+            False → 仅记录警告，靠 exec 动态注入保证命令拿到的环境变量始终最新。
     """
 
     def __init__(self,
@@ -71,6 +76,7 @@ class DockerSandbox(BaseSandbox):
                  max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
                  docker_client_kwargs: dict[str, Any] | None = None,
                  env_vars: dict[str, str] | None = None,
+                 recreate_on_env_drift: bool = False, # env_vars 变化时是否重建容器
                  cpu_limit:int | None = None, # CPU核心限制数量
                  memory_limit: str | None = None, # 内存大小限制
                  ):
@@ -84,6 +90,15 @@ class DockerSandbox(BaseSandbox):
         self._default_timeout = execute_timeout
         self._max_output_bytes = max_output_bytes
         self._env_vars=env_vars
+        self._recreate_on_env_drift = recreate_on_env_drift
+        # 防御性转换：.env 的 CPU_LIMIT 经 os.getenv 读出来是字符串，
+        # 参与算术运算（nano_cpus = 核心数*1e9）前必须先转数值；解析失败视为不限制
+        if cpu_limit is not None:
+            try:
+                cpu_limit = float(cpu_limit)
+            except (TypeError, ValueError):
+                logger.warning("无法解析 cpu_limit=%r，将不限制 CPU", cpu_limit)
+                cpu_limit = None
         self._cpu_limit = cpu_limit
         self._memory_limit = memory_limit
 
@@ -127,12 +142,76 @@ class DockerSandbox(BaseSandbox):
             # 使错误栈更清晰，只显示当前应用层定义的异常。
             raise DockerImageNotFound(self._image) from None
 
+    def _effective_env(self) -> dict[str, str] | None:
+        """返回实际注入容器的环境变量：剔除值为 None 的键。
+
+        None 值没有意义，直接传入会让 docker 注入字符串 "None" 污染环境；
+        统一在这里剔除，保证容器创建（environment=）与命令执行
+        （exec_run environment=）两侧看到的环境一致，便于 _env_matches 漂移比对。
+        """
+        if not self._env_vars:
+            return None
+        effective = {k: str(v) for k, v in self._env_vars.items() if v is not None}
+        return effective or None
+
+    def _env_matches(self, container: Container) -> bool:
+        """检查既有容器的环境变量是否与当前 env_vars 一致。
+
+        Docker 容器创建后环境变量不可修改，这里用于检测 env_vars 在容器创建后
+        是否被改动。只比对 env_vars 中显式设置（非 None）的键，镜像自带的环境
+        变量不参与比对。比对异常时保守返回 True，避免误删/误重建容器。
+        """
+        expected = self._effective_env()
+        if not expected:
+            return True
+        try:
+            current_env: dict[str, str] = {}
+            for entry in container.attrs["Config"]["Env"] or []:
+                key, _, value = entry.partition("=")
+                if key:
+                    current_env[key] = value
+            return all(current_env.get(k) == v for k, v in expected.items())
+        except Exception:
+            return True
+
     def _get_or_create_container(self) -> Container:
-        """获取已存在的容器，若不存在则新建。"""
+        """获取已存在的容器，若不存在则新建。
+
+        环境变量在容器创建后是只读的（Docker 语义）。若既有容器的环境变量与
+        当前 env_vars 不一致，说明 env_vars 在创建之后被改过：
+          - recreate_on_env_drift=True 时删除旧容器并按新 env_vars 重建；
+          - 否则仅记录警告——命令执行层面由 execute() 通过 exec_run(environment=...)
+            动态注入最新 env_vars，新增/修改的字段无需重建容器即可立即生效。
+        """
         try:
             # 尝试根据名称获取已有容器
             container = self._client.containers.get(self._container_name)
             logger.info(f"Found existing container: {self._container_name}")
+
+            # 环境变量漂移检测：env_vars 有新增/修改但容器已创建
+            if not self._env_matches(container):
+                if self._recreate_on_env_drift:
+                    try:
+                        container.remove(force=True)
+                        logger.warning(
+                            "env_vars 与既有容器不一致，已删除旧容器并按新 env_vars 重建 %s",
+                            self._container_name,
+                        )
+                        return self._create_container()
+                    except Exception as e:
+                        logger.warning(
+                            "重建容器失败（%s），继续复用既有容器；"
+                            "命令仍会通过 exec 动态注入最新 env_vars",
+                            e,
+                        )
+                else:
+                    logger.warning(
+                        "既有容器 %s 的环境变量与当前 env_vars 不一致"
+                        "（env_vars 在容器创建后被修改）。已通过 exec_run 动态注入"
+                        "最新 env_vars，命令执行即可生效，无需重建容器；"
+                        "如需同步容器级环境变量，可设置 recreate_on_env_drift=True。",
+                        self._container_name,
+                    )
 
             # 如果容器处于停止状态，重新启动它
             if container.status != "running":
@@ -162,8 +241,9 @@ class DockerSandbox(BaseSandbox):
             detach=True,  # 后台运行（不阻塞当前线程）
             stdin_open=True,  # 保持 STDIN 打开（便于交互式调试）
             tty=False,  # 不分配伪终端（避免输出中的控制字符污染日志）
-            environment=self._env_vars, # 向容器内传入环境变量
-            nano_cpus=int(self._cpu_limit*1e9), # 纳秒级CPU，CPU核数*1e9
+            environment=self._effective_env(), # 向容器内传入环境变量（剔除 None 值）
+            # nano_cpus 纳秒级CPU = 核心数*1e9；None 表示不限制
+            nano_cpus=int(self._cpu_limit*1e9) if self._cpu_limit is not None else None,
             mem_limit=self._memory_limit,
         )
 
@@ -215,6 +295,10 @@ class DockerSandbox(BaseSandbox):
                     stderr=True,  # 捕获标准错误（与 stdout 合并返回）
                     demux=False,  # 不分离 stdout/stderr，合并为一个字节流
                     workdir=self._working_dir,  # 指定执行目录，覆盖容器的默认工作目录
+                    # 动态注入环境变量：容器创建后新增/修改的 env_vars 字段，
+                    # 每条命令执行时也一并生效，无需重建容器
+                    # （exec 级环境变量与容器级叠加：覆盖同名变量、保留其余容器变量）
+                    environment=self._effective_env(),
                 )
                 # 将结果写入共享字典
                 result_holder["exit_code"] = exit_code
